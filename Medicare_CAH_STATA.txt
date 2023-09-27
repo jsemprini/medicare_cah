@@ -1,0 +1,258 @@
+****Project Medicare#CAH: Estimate the effect of BBA (CAH-conversion) on Medicare Cancer Staging & Survival****
+****Approach: Differences in Discontinuities*****
+
+clear all
+
+
+use "H:\1-pending\b-CAH\toanalyze.dta"
+
+
+gen alive2=.
+replace alive2=0 if num_surv<24
+replace alive2=1 if num_surv>=24
+
+
+***prep analysis Cancer Only***
+
+gen lung=0
+replace lung=1 if site=="Lung and Bronchus"
+gen prostate=0
+replace prostate=1 if site=="Prostate" 
+gen femalebreast=0
+replace femalebreast=1 if site=="Breast" & sex=="Female"
+
+gen crc=0
+replace crc=1 if site==  "Ascending Colon" | site== "Cecum" | site=="Descending Colon" | site=="Hepatic flexure" | site=="Rectosigmoid Junction" | site=="Rectum" | site=="Sigmoid Colon" | site=="Splenic Flexure" | site=="Transverse Colon"
+ 	
+ 
+
+
+
+gen post=.
+replace post=0 if year<1999
+replace post=1 if year>2005
+
+keep if post!=.
+keep if age>45
+keep if year>1992 & year<=2010
+drop if age==.
+keep if fmt=="Yes"
+drop if state=="AK" | state=="HI"
+
+gen fd=post*cah
+
+
+keep age year post cah fd county fips ruc10 metro urban rural state localized regional distant num_surv race_ethnic marital sex  alive2 lung prostate femalebreast pancreas crc
+
+
+
+order age year post cah fd county fips ruc10 metro urban rural state num_surv race_ethnic marital sex  distant alive2 lung prostate femalebreast pancreas crc
+
+export delimited using "H:\1-pending\b-CAH\cah_all.csv", replace
+
+*****create groups for analysis****
+gen cat1=1
+gen cat2=1 if lung==1
+gen cat3=1 if prostate==1
+gen cat4=1 if femalebreast==1
+gen cat5=1 if crc==1
+
+
+
+
+gen medicare=0
+replace medicare=1 if age>=65
+
+tab sex, gen(dum_sex)
+tab race_ethnic, gen(dum_race)
+tab marital, gen(dum_mar)
+
+global controls dum*
+
+gen cutoff=age-65
+
+
+estimates clear 
+
+***conduct analysis - dd****
+foreach x in all {
+
+	foreach y in distant alive2{
+
+		foreach n of numlist 1/5{	
+
+
+eststo: areg `y' i.post#i.cah#i.medicare i.medicare i.medicare#i.post i.medicare#i.cah i.post#i.cah ib1998.year i.($controls) (c.cutoff c.cutoff#medicare)##(i.post i.cah) c.cutoff#i.post#i.cah c.cutoff#i.post#i.cah#i.medicare if state_`x'==1 & cat`n'==1 , vce(cluster fips) absorb(fips) 
+
+sum `y' if e(sample) & age==64
+estadd scalar avg=r(mean)
+}
+}
+
+
+
+
+}
+
+***
+
+tab state, gen(dum_state)
+
+
+gen state_code=.
+foreach n of numlist 1/7{
+	replace state_code=`n' if dum_state`n'==1
+}
+
+
+
+***conduct analysis - ddd****
+foreach x in all {
+
+	foreach y in distant alive2{
+
+		foreach n of numlist 1/5{	
+
+
+eststo: areg `y' i.post#i.cah#i.medicare i.medicare i.medicare#i.post i.medicare#i.cah i.post#i.cah ib1998.year i.($controls) (c.cutoff c.cutoff#medicare)##(i.post i.cah) c.cutoff#i.post#i.cah c.cutoff#i.post#i.cah#i.medicare i.year#i.state_code if state_`x'==1 & cat`n'==1 , vce(cluster fips) absorb(fips) 
+
+sum `y' if e(sample) & age==64
+estadd scalar avg=r(mean)
+}
+}
+
+
+
+estimates clear
+
+}
+
+
+
+*****begin prep for placebo test****
+
+foreach n of numlist 55  {
+
+gen placebo_`n'=0 if age <65
+replace placebo_`n'=1 if age>=`n' & age<65
+
+gen cutoff_`n'=age-`n'
+
+}
+
+
+foreach n of numlist  75 {
+
+gen placebo_`n'=0 if age>65
+replace placebo_`n'=1 if age>=`n'
+
+gen cutoff_`n'=age-`n'
+
+}
+
+
+foreach n of numlist 55 75 {
+
+
+estimates clear 
+
+***conduct analysis - placebo dd****
+foreach x in all {
+
+	foreach y in distant alive2{
+
+		foreach z of numlist 1/6{	
+
+
+eststo: areg `y' i.post#i.cah#i.placebo_`n' i.placebo_`n' i.placebo_`n'#i.post i.placebo_`n'#i.cah i.post#i.cah ib1998.year i.($controls) (c.cutoff_`n' c.cutoff_`n'#placebo_`n')##(i.post i.cah) c.cutoff_`n'#i.post#i.cah c.cutoff_`n'#i.post#i.cah#i.placebo_`n' if state_`x'==1 & cat`z'==1 , vce(cluster fips) absorb(fips) 
+
+sum `y' if e(sample) & age==`n'
+estadd scalar avg=r(mean)
+}
+}
+
+
+
+
+}
+
+
+}
+
+
+
+foreach n of numlist 55 75 {
+
+
+estimates clear 
+
+***conduct analysis - placebo dd****
+foreach x in all {
+
+	foreach y in distant alive2{
+
+		foreach z of numlist 1/6{	
+
+
+eststo: areg `y' i.post#i.cah#i.placebo_`n' i.placebo_`n' i.placebo_`n'#i.post i.placebo_`n'#i.cah i.post#i.cah ib1998.year i.($controls) (c.cutoff_`n' c.cutoff_`n'#placebo_`n')##(i.post i.cah) c.cutoff_`n'#i.post#i.cah c.cutoff_`n'#i.post#i.cah#i.placebo_`n' i.year#i.state_code if state_`x'==1 & cat`z'==1 , vce(cluster fips) absorb(fips) 
+
+sum `y' if e(sample) & age==`n'
+estadd scalar avg=r(mean)
+}
+}
+
+
+
+
+}
+
+
+}
+
+
+**prep quadratic****
+
+gen cc=cutoff*cutoff
+
+
+***conduct analysis****
+foreach x in all {
+
+	foreach y in distant alive2{
+
+		foreach n of numlist 1/5{	
+
+
+eststo: areg `y' i.post#i.cah#i.medicare i.medicare i.medicare#i.post i.medicare#i.cah i.post#i.cah i.year i.($controls) (c.cutoff c.cutoff#medicare)##(i.post i.cah) c.cutoff#i.post#i.cah c.cutoff#i.post#i.cah#i.medicare c.cc##i.medicare##i.post##i.cah if state_`x'==1 & cat`n'==1 , vce(cluster fips) absorb(fips) 
+
+sum `y' if e(sample) & age==64 & post==0 & cah==1
+estadd scalar avg=r(mean)
+}
+}
+
+
+
+}
+
+
+***prep sex analysis***
+
+
+gen male=0
+replace male=1 if sex=="Male"
+
+estimates clear 
+
+***conduct analysis****
+
+	foreach y in distant alive2{
+		foreach n of numlist 1/2 5{	
+			foreach x of numlist 0/1 {
+
+
+eststo: areg `y' i.post#i.cah#i.medicare i.medicare i.medicare#i.post i.medicare#i.cah i.post#i.cah i.year i.($controls) (c.cutoff c.cutoff#medicare)##(i.post i.cah) c.cutoff#i.post#i.cah c.cutoff#i.post#i.cah#i.medicare if male==`x' & cat`n'==1 , vce(cluster fips) absorb(fips) 
+
+
+}
+}
+}
